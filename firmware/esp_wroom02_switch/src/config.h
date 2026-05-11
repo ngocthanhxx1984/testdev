@@ -1,10 +1,10 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// ─── GPIO Pin Definitions ───────────────────────────────────────────────────
+// ─── GPIO Pin Definitions (ESP-WROOM-02 Smart Switch) ───────────────────────
 #define PIN_RELAY   15  // GPIO15 - Relay control
-#define PIN_LED     12  // GPIO12 - LED control
-#define PIN_BUTTON   0  // GPIO0  - Flash button (built-in on most boards)
+#define PIN_LED     12  // GPIO12 - LED indicator
+#define PIN_BUTTON  13  // GPIO13 - Physical switch / reset button
 
 // ─── Button Timing ──────────────────────────────────────────────────────────
 #define LONG_PRESS_MS       5000  // 5 seconds for factory reset
@@ -14,7 +14,7 @@
 #define MQTT_PORT_DEFAULT    443
 #define MQTT_RECONNECT_MS    5000
 #define MQTT_QOS             1
-#define DISCOVERY_INTERVAL  60000  // Re-broadcast discovery every 60s (was 30s)
+#define DISCOVERY_INTERVAL  60000  // Re-broadcast discovery every 60s
 
 // ─── Power Save Settings ────────────────────────────────────────────────────
 // Similar to ESPHome power_save_mode: HIGH — trades 1-2s response latency
@@ -32,13 +32,13 @@
 #define TOPIC_STATUS_TEMPLATE "v1/devices/%s/status"
 
 // ─── Firmware Version ───────────────────────────────────────────────────────
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.0.0"
 
 // ─── Config File Path (LittleFS) ────────────────────────────────────────────
 #define CONFIG_FILE "/config.json"
 
 // ─── WiFiManager AP Settings ────────────────────────────────────────────────
-#define AP_NAME     "ESP8266-IoT-Setup"
+#define AP_NAME     "SmartSwitch-Setup"
 #define AP_PASSWORD "12345678"
 
 #endif // CONFIG_H
