@@ -56,12 +56,6 @@ void setup() {
     Serial.begin(115200);
     Serial.println(F("\n\n=== ESP8266 IoT Ecosystem v" FW_VERSION " ==="));
 
-    // Power save: reduce CPU frequency (80MHz vs 160MHz)
-#if POWER_SAVE_ENABLED
-    system_update_cpu_freq(CPU_FREQ_MHZ);
-    Serial.printf_P(PSTR("[PWR] CPU freq: %dMHz\n"), CPU_FREQ_MHZ);
-#endif
-
     // Initialize GPIO
     pinMode(PIN_RELAY, OUTPUT);
     pinMode(PIN_LED, OUTPUT);
@@ -99,13 +93,6 @@ void setup() {
         if (WiFi.status() == WL_CONNECTED) {
             Serial.printf_P(PSTR("[WIFI] Connected! IP: %s\n"), WiFi.localIP().toString().c_str());
 
-            // Power save: WiFi light sleep + reduced TX power
-#if POWER_SAVE_ENABLED
-            WiFi.setSleepMode(WIFI_LIGHT_SLEEP);
-            WiFi.setOutputPower(WIFI_TX_POWER_DBM);
-            Serial.printf_P(PSTR("[PWR] WiFi light sleep, TX: %.1fdBm\n"), WIFI_TX_POWER_DBM);
-#endif
-
             // Initialize NTP
             timeClient.begin();
             timeClient.update();
@@ -136,10 +123,6 @@ void loop() {
     mqtt.loop();
     timeClient.update();
     webServer.loop();
-
-#if POWER_SAVE_ENABLED
-    delay(LOOP_DELAY_MS);
-#endif
 }
 
 // ─── Button Handler ─────────────────────────────────────────────────────────

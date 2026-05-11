@@ -14,15 +14,7 @@
 #define MQTT_PORT_DEFAULT    443
 #define MQTT_RECONNECT_MS    5000
 #define MQTT_QOS             1
-#define DISCOVERY_INTERVAL  60000  // Re-broadcast discovery every 60s (was 30s)
-
-// ─── Power Save Settings ────────────────────────────────────────────────────
-// Similar to ESPHome power_save_mode: HIGH — trades 1-2s response latency
-// for significantly lower power consumption and heat.
-#define POWER_SAVE_ENABLED   1
-#define LOOP_DELAY_MS       100   // Main loop delay (reduces CPU heat)
-#define CPU_FREQ_MHZ         80   // 80MHz vs default 160MHz
-#define WIFI_TX_POWER_DBM  10.0   // Reduce WiFi TX power (max 20.5)
+#define DISCOVERY_INTERVAL  30000  // Re-broadcast discovery every 30s
 
 // ─── MQTT Topics (templates, {id} replaced at runtime) ──────────────────────
 #define TOPIC_DISCOVERY      "home/discovery"
@@ -32,7 +24,7 @@
 #define TOPIC_STATUS_TEMPLATE "v1/devices/%s/status"
 
 // ─── Firmware Version ───────────────────────────────────────────────────────
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.0.0"
 
 // ─── Config File Path (LittleFS) ────────────────────────────────────────────
 #define CONFIG_FILE "/config.json"

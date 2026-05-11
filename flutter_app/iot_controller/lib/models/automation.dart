@@ -8,9 +8,6 @@ class Automation {
   AutomationType type;
   bool enabled;
 
-  // Timestamp for merge-based sync across devices
-  int lastModified;
-
   // For schedule type: specific time HH:MM
   int? hour;
   int? minute;
@@ -35,7 +32,6 @@ class Automation {
     required this.name,
     required this.type,
     this.enabled = true,
-    int? lastModified,
     this.hour,
     this.minute,
     this.repeatDays = const [],
@@ -47,8 +43,7 @@ class Automation {
     this.conditionValue,
     this.conditionBoolValue,
     List<AutomationAction>? actions,
-  })  : lastModified = lastModified ?? DateTime.now().millisecondsSinceEpoch,
-        actions = actions ?? [];
+  }) : actions = actions ?? [];
 
   bool get isCountdownRunning =>
       type == AutomationType.countdown && countdownStart != null;
@@ -215,7 +210,6 @@ class Automation {
         'name': name,
         'type': type.index,
         'enabled': enabled,
-        'lastModified': lastModified,
         'hour': hour,
         'minute': minute,
         'repeatDays': repeatDays,
@@ -234,7 +228,6 @@ class Automation {
       name: json['name'] ?? '',
       type: AutomationType.values[json['type'] ?? 0],
       enabled: json['enabled'] ?? true,
-      lastModified: json['lastModified'] as int?,
       hour: json['hour'],
       minute: json['minute'],
       repeatDays: List<int>.from(json['repeatDays'] ?? []),

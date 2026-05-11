@@ -64,12 +64,11 @@ A full-stack IoT system for remote device control over WiFi via MQTT. Control LE
 - **LittleFS Config Storage** — Persistent configuration survives reboots
 - **MQTT over TLS** — Secure connection to HiveMQ Cloud on port 8883
 - **Last Will & Testament (LWT)** — Broker publishes offline status if device disconnects unexpectedly
-- **Periodic Discovery** — Broadcasts device identity every 60 seconds
+- **Periodic Discovery** — Broadcasts device identity every 30 seconds
 - **Physical Button Control**:
   - Short press: Toggle Relay + LED
   - Long press (5s): Factory reset (clears WiFi + MQTT config, restarts in AP mode)
 - **OTA Updates** — Remote firmware update via HTTP URL sent through MQTT
-- **Power Save Mode** — WiFi light sleep, 80MHz CPU, reduced TX power (similar to ESPHome `power_save_mode: HIGH`). Accepts 1-2s delay on relay/switch/LED response for significantly lower power consumption and heat.
 
 ### Hardware Requirements
 - ESP8266 (NodeMCU, Wemos D1 Mini, etc.)
@@ -107,32 +106,6 @@ pio device monitor
 
 ---
 
-## 1b. ESP-WROOM-02 Smart Switch Firmware
-
-Variant of the ESP8266 firmware for ESP-WROOM-02 modules with 4MB flash.
-
-### Pin Mapping
-| Function | GPIO |
-|----------|------|
-| LED | GPIO12 |
-| Relay | GPIO15 |
-| Switch/Reset | GPIO13 |
-
-### Build & Flash
-```bash
-cd firmware/esp_wroom02_switch
-pio run
-pio run --target upload
-```
-
-### First-Time Setup
-1. Power on — creates WiFi AP `SmartSwitch-Setup` (password: `12345678`)
-2. Connect and configure WiFi + MQTT via captive portal
-3. Short press GPIO13: toggle relay + LED
-4. Long press GPIO13 (5s): factory reset
-
----
-
 ## 2. Flutter App (Android)
 
 ### Features
@@ -140,7 +113,6 @@ pio run --target upload
 - **Auto-Discovery**: Automatically detects ESP8266 devices via MQTT discovery topic
 - **Real-time Updates**: UI updates instantly when device states change
 - **Smart Scenarios**: Create and execute multi-device automation sequences
-- **Multi-Device Automation Sync**: Merge-based sync with per-rule timestamps ensures enable/disable states sync correctly across multiple phones
 - **OTA Center**: Push firmware updates to any online device
 - **Notification History**: Track all device events (on/off, online/offline, OTA)
 - **Material 3 Design**: Modern UI with light/dark theme support
@@ -201,21 +173,13 @@ flutter build apk
 
 ```
 ├── firmware/
-│   ├── esp8266_iot/
-│   │   ├── platformio.ini          # PlatformIO config & dependencies
-│   │   └── src/
-│   │       ├── config.h            # Pin definitions, MQTT topics, constants
-│   │       ├── config_manager.h/.cpp  # LittleFS config read/write
-│   │       ├── mqtt_manager.h/.cpp    # MQTT client, LWT, discovery
-│   │       └── main.cpp            # Entry point, WiFiManager, button handler, OTA
-│   │
-│   └── esp_wroom02_switch/
-│       ├── platformio.ini          # ESP-WROOM-02 config (4MB flash)
+│   └── esp8266_iot/
+│       ├── platformio.ini          # PlatformIO config & dependencies
 │       └── src/
-│           ├── config.h            # GPIO13 switch, power save settings
-│           ├── config_manager.h/.cpp
-│           ├── mqtt_manager.h/.cpp
-│           └── main.cpp
+│           ├── config.h            # Pin definitions, MQTT topics, constants
+│           ├── config_manager.h/.cpp  # LittleFS config read/write
+│           ├── mqtt_manager.h/.cpp    # MQTT client with TLS, LWT, discovery
+│           └── main.cpp            # Entry point, WiFiManager, button handler, OTA
 │
 ├── flutter_app/
 │   └── iot_controller/

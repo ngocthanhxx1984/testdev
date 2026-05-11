@@ -25,7 +25,6 @@ void MqttManager::begin(const char* host, uint16_t port,
 
     _mqttClient.setServer(_host, _port);
     _mqttClient.setBufferSize(256);
-    _mqttClient.setKeepAlive(60);
     _mqttClient.setCallback([this](char* t, byte* p, unsigned int l) {
         handleMessage(t, p, l);
     });
