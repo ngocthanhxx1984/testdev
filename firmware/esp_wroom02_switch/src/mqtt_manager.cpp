@@ -125,7 +125,7 @@ void MqttManager::handleMessage(char* topic, byte* payload, unsigned int length)
 void MqttManager::publishDiscovery() {
     JsonDocument doc;
     doc["id"] = _deviceId;
-    doc["type"] = "esp8266";
+    doc["type"] = "esp_wroom02";
     doc["v"] = FW_VERSION;
 
     JsonArray features = doc["features"].to<JsonArray>();

@@ -18,10 +18,13 @@ class AutomationProvider extends ChangeNotifier {
   final MqttService _mqttService;
   final List<Automation> _automations = [];
   final _uuid = const Uuid();
+  String _localSenderId = '';
+  bool _ignoreNextEcho = false;
 
   List<Automation> get automations => List.unmodifiable(_automations);
 
   AutomationProvider(this._mqttService) {
+    _localSenderId = 'flutter_${_uuid.v4().substring(0, 8)}';
     _loadAutomations();
     _subscribeLog();
     _subscribeRules();
@@ -53,28 +56,70 @@ class AutomationProvider extends ChangeNotifier {
   }
 
   /// Subscribe to rules topic to sync automations across devices.
-  /// When another device publishes rules, this device loads them.
+  /// Uses merge-based sync: per-rule lastModified timestamps determine
+  /// which version wins, preventing race conditions when two phones
+  /// toggle enable/disable at nearly the same time.
   void _subscribeRules() {
     _mqttService.subscribe(_kRulesTopic, (topic, payload) {
-      final rules = payload['rules'] as List?;
-      if (rules != null) {
-        _automations.clear();
-        _automations.addAll(
-          rules.map((e) => Automation.fromJson(e as Map<String, dynamic>)),
-        );
-        _saveAutomations();
-        notifyListeners();
-        debugPrint('[AUTO] Synced ${_automations.length} rules from server');
+      final senderId = payload['senderId'] as String?;
+      if (senderId == _localSenderId) {
+        debugPrint('[AUTO] Ignoring own echo');
+        return;
       }
+      if (_ignoreNextEcho) {
+        _ignoreNextEcho = false;
+        return;
+      }
+
+      final rules = payload['rules'] as List?;
+      if (rules == null) return;
+
+      final incoming = rules
+          .map((e) => Automation.fromJson(e as Map<String, dynamic>))
+          .toList();
+
+      _mergeRules(incoming);
+      _saveAutomations();
+      notifyListeners();
+      debugPrint('[AUTO] Merged ${incoming.length} rules from $senderId');
     });
   }
 
+  /// Merge incoming rules with local rules using lastModified timestamps.
+  /// For each rule: keep the version with the newer lastModified.
+  /// New remote rules are added; rules only existing locally are kept.
+  void _mergeRules(List<Automation> incoming) {
+    final localById = {for (final a in _automations) a.id: a};
+    final remoteById = {for (final a in incoming) a.id: a};
+    final allIds = {...localById.keys, ...remoteById.keys};
+
+    final merged = <Automation>[];
+    for (final id in allIds) {
+      final local = localById[id];
+      final remote = remoteById[id];
+      if (local != null && remote != null) {
+        merged.add(
+          remote.lastModified >= local.lastModified ? remote : local,
+        );
+      } else if (remote != null) {
+        merged.add(remote);
+      } else if (local != null) {
+        merged.add(local);
+      }
+    }
+    _automations.clear();
+    _automations.addAll(merged);
+  }
+
   /// Publish all automation rules to MQTT broker (retained).
-  /// The OpenWrt automation_manager.sh subscribes to this topic
-  /// and rebuilds crontab / condition monitors accordingly.
+  /// Includes senderId so other devices can distinguish the source.
   void _publishRules() {
     final data = _automations.map((a) => a.toJson()).toList();
-    _mqttService.publish(_kRulesTopic, {'rules': data}, retain: true);
+    _mqttService.publish(
+      _kRulesTopic,
+      {'rules': data, 'senderId': _localSenderId},
+      retain: true,
+    );
     debugPrint('[AUTO] Published ${data.length} rules to MQTT');
   }
 
@@ -93,6 +138,7 @@ class AutomationProvider extends ChangeNotifier {
   void updateAutomation(Automation updated) {
     final index = _automations.indexWhere((a) => a.id == updated.id);
     if (index >= 0) {
+      updated.lastModified = DateTime.now().millisecondsSinceEpoch;
       _automations[index] = updated;
       _saveAutomations();
       _publishRules();
@@ -103,6 +149,7 @@ class AutomationProvider extends ChangeNotifier {
   void removeAutomation(String id) {
     _automations.removeWhere((a) => a.id == id);
     _saveAutomations();
+    _ignoreNextEcho = true;
     _publishRules();
     notifyListeners();
   }
@@ -110,6 +157,7 @@ class AutomationProvider extends ChangeNotifier {
   void toggleAutomation(String id) {
     final auto = _automations.firstWhere((a) => a.id == id);
     auto.enabled = !auto.enabled;
+    auto.lastModified = DateTime.now().millisecondsSinceEpoch;
     _saveAutomations();
     _publishRules();
     notifyListeners();

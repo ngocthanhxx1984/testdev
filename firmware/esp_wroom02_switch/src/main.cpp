@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// ESP8266 IoT Ecosystem Firmware
+// ESP-WROOM-02 Smart Switch Firmware
 // Controls LED (GPIO12) and Relay (GPIO15) via MQTT (no TLS)
+// Physical switch/reset button on GPIO13
 // Broker: OpenWrt Mosquitto at adangdang.ddns.net:443
-// Features: WiFiManager provisioning, LittleFS config, OTA, factory reset
+// Features: WiFiManager provisioning, LittleFS config, OTA, factory reset,
+//           power save mode (light sleep, 80MHz CPU, reduced TX power)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #include <Arduino.h>
@@ -54,7 +56,7 @@ void applyOutputs();
 // ═════════════════════════════════════════════════════════════════════════════
 void setup() {
     Serial.begin(115200);
-    Serial.println(F("\n\n=== ESP8266 IoT Ecosystem v" FW_VERSION " ==="));
+    Serial.println(F("\n\n=== ESP-WROOM-02 Smart Switch v" FW_VERSION " ==="));
 
     // Power save: reduce CPU frequency (80MHz vs 160MHz)
 #if POWER_SAVE_ENABLED
