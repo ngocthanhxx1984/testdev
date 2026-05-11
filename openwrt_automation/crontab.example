@@ -1,0 +1,30 @@
+# ═══════════════════════════════════════════════════════════════
+# OpenWrt IoT Automation Crontab
+# Copy nội dung này vào crontab: crontab -e
+# Hoặc: cat crontab.example >> /etc/crontabs/root
+# ═══════════════════════════════════════════════════════════════
+
+# ─── Schedule: Bật/tắt relay theo giờ ───────────────────────
+# Bật relay lúc 6:00 sáng mỗi ngày
+0 6 * * * /root/iot-automation/mqtt_cmd.sh esp01 relay true
+
+# Tắt relay lúc 22:00 tối mỗi ngày
+0 22 * * * /root/iot-automation/mqtt_cmd.sh esp01 relay false
+
+# ─── Schedule: Bật/tắt LED theo giờ ─────────────────────────
+# Bật LED lúc 18:00 thứ 2-6 (Mon-Fri)
+0 18 * * 1-5 /root/iot-automation/mqtt_cmd.sh esp01 led true
+
+# Tắt LED lúc 23:00 hàng ngày
+0 23 * * * /root/iot-automation/mqtt_cmd.sh esp01 led false
+
+# ─── Sunrise/Sunset ─────────────────────────────────────────
+# Tính toán và lên lịch sunrise/sunset mỗi ngày lúc 0:01
+1 0 * * * /root/iot-automation/sunrise_sunset.sh
+
+# ─── Condition Monitor (khởi động sau reboot) ───────────────
+# Khi nhiệt độ > 30°C → bật quạt (relay)
+@reboot nohup /root/iot-automation/condition_monitor.sh aht10_01 temperature gt 30 esp01 relay true > /dev/null 2>&1 &
+
+# Khi motion detected → bật LED
+@reboot nohup /root/iot-automation/condition_monitor.sh pir_01 motion eq true esp01 led true > /dev/null 2>&1 &

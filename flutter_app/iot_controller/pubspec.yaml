@@ -1,0 +1,25 @@
+name: iot_controller
+description: IoT Ecosystem Controller - ESP8266 + HiveMQ Cloud + Flutter
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  mqtt_client: ^10.2.1
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+  uuid: ^4.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
