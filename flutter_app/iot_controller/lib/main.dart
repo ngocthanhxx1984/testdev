@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'providers/auth_provider.dart';
 import 'providers/mqtt_provider.dart';
 import 'providers/device_provider.dart';
 import 'providers/automation_provider.dart';
+import 'services/api_service.dart';
+import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/smart_screen.dart';
 import 'screens/automation_screen.dart';
@@ -10,8 +13,9 @@ import 'screens/ota_screen.dart';
 import 'screens/notification_screen.dart';
 import 'screens/settings_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiService().loadSettings();
   runApp(const IoTControllerApp());
 }
 
@@ -22,6 +26,7 @@ class IoTControllerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()..tryAutoLogin()),
         ChangeNotifierProvider(create: (_) => MqttProvider()..loadSettings()),
         ChangeNotifierProxyProvider<MqttProvider, DeviceProvider>(
           create: (ctx) =>
@@ -49,7 +54,14 @@ class IoTControllerApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
         themeMode: ThemeMode.system,
-        home: const MainNavigation(),
+        home: Consumer<AuthProvider>(
+          builder: (context, auth, _) {
+            if (auth.isLoggedIn) {
+              return const MainNavigation();
+            }
+            return const LoginScreen();
+          },
+        ),
       ),
     );
   }
@@ -100,7 +112,6 @@ class _MainNavigationState extends State<MainNavigation> {
       if (mqttProvider.isConnected && !_listeningStarted) {
         _listeningStarted = true;
         deviceProvider.startListening();
-        // Sync automation rules to server on connect
         context.read<AutomationProvider>().syncToServer();
       } else if (!mqttProvider.isConnected) {
         _listeningStarted = false;
@@ -154,44 +165,33 @@ class _MainNavigationState extends State<MainNavigation> {
           setState(() => _currentIndex = index);
         },
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: [
-          const NavigationDestination(
+        destinations: const [
+          NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.devices_outlined),
             selectedIcon: Icon(Icons.devices),
             label: 'Entities',
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.schedule_outlined),
-            selectedIcon: Icon(Icons.schedule),
-            label: 'Auto',
+          NavigationDestination(
+            icon: Icon(Icons.auto_awesome_outlined),
+            selectedIcon: Icon(Icons.auto_awesome),
+            label: 'Automation',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.system_update_outlined),
             selectedIcon: Icon(Icons.system_update),
             label: 'OTA',
           ),
           NavigationDestination(
-            icon: Consumer<DeviceProvider>(
-              builder: (context, provider, _) {
-                final count = provider.unreadCount;
-                if (count == 0) {
-                  return const Icon(Icons.notifications_outlined);
-                }
-                return Badge(
-                  label: Text('$count'),
-                  child: const Icon(Icons.notifications_outlined),
-                );
-              },
-            ),
-            selectedIcon: const Icon(Icons.notifications),
+            icon: Icon(Icons.notifications_outlined),
+            selectedIcon: Icon(Icons.notifications),
             label: 'Alerts',
           ),
-          const NavigationDestination(
+          NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
             label: 'Settings',

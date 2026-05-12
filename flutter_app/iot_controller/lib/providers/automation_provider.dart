@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/automation.dart';
 import '../services/mqtt_service.dart';
+import '../services/api_service.dart';
 
 /// MQTT topic for syncing automation rules to server
 const _kRulesTopic = 'home/automation/rules';
@@ -16,6 +17,7 @@ const _kLogTopic = 'home/automation/log';
 
 class AutomationProvider extends ChangeNotifier {
   final MqttService _mqttService;
+  final ApiService _api = ApiService();
   final List<Automation> _automations = [];
   final _uuid = const Uuid();
   String _localSenderId = '';
@@ -30,7 +32,6 @@ class AutomationProvider extends ChangeNotifier {
     _subscribeRules();
   }
 
-  // Track last execution time reported by server
   final Map<String, DateTime> _lastExecuted = {};
   DateTime? lastExecutedTime(String id) => _lastExecuted[id];
 
@@ -39,8 +40,6 @@ class AutomationProvider extends ChangeNotifier {
       final id = payload['id'] as String?;
       if (id != null) {
         _lastExecuted[id] = DateTime.now();
-
-        // Reset countdown state when server reports completion
         final type = payload['type'] as String?;
         if (type == 'countdown') {
           try {
@@ -49,35 +48,24 @@ class AutomationProvider extends ChangeNotifier {
             _saveAutomations();
           } catch (_) {}
         }
-
         notifyListeners();
       }
     });
   }
 
-  /// Subscribe to rules topic to sync automations across devices.
-  /// Uses merge-based sync: per-rule lastModified timestamps determine
-  /// which version wins, preventing race conditions when two phones
-  /// toggle enable/disable at nearly the same time.
   void _subscribeRules() {
     _mqttService.subscribe(_kRulesTopic, (topic, payload) {
       final senderId = payload['senderId'] as String?;
-      if (senderId == _localSenderId) {
-        debugPrint('[AUTO] Ignoring own echo');
-        return;
-      }
+      if (senderId == _localSenderId) return;
       if (_ignoreNextEcho) {
         _ignoreNextEcho = false;
         return;
       }
-
       final rules = payload['rules'] as List?;
       if (rules == null) return;
-
       final incoming = rules
           .map((e) => Automation.fromJson(e as Map<String, dynamic>))
           .toList();
-
       _mergeRules(incoming);
       _saveAutomations();
       notifyListeners();
@@ -85,22 +73,16 @@ class AutomationProvider extends ChangeNotifier {
     });
   }
 
-  /// Merge incoming rules with local rules using lastModified timestamps.
-  /// For each rule: keep the version with the newer lastModified.
-  /// New remote rules are added; rules only existing locally are kept.
   void _mergeRules(List<Automation> incoming) {
     final localById = {for (final a in _automations) a.id: a};
     final remoteById = {for (final a in incoming) a.id: a};
     final allIds = {...localById.keys, ...remoteById.keys};
-
     final merged = <Automation>[];
     for (final id in allIds) {
       final local = localById[id];
       final remote = remoteById[id];
       if (local != null && remote != null) {
-        merged.add(
-          remote.lastModified >= local.lastModified ? remote : local,
-        );
+        merged.add(remote.lastModified >= local.lastModified ? remote : local);
       } else if (remote != null) {
         merged.add(remote);
       } else if (local != null) {
@@ -111,8 +93,6 @@ class AutomationProvider extends ChangeNotifier {
     _automations.addAll(merged);
   }
 
-  /// Publish all automation rules to MQTT broker (retained).
-  /// Includes senderId so other devices can distinguish the source.
   void _publishRules() {
     final data = _automations.map((a) => a.toJson()).toList();
     _mqttService.publish(
@@ -120,18 +100,30 @@ class AutomationProvider extends ChangeNotifier {
       {'rules': data, 'senderId': _localSenderId},
       retain: true,
     );
-    debugPrint('[AUTO] Published ${data.length} rules to MQTT');
   }
 
-  /// Sync rules to server. Called after any change and on reconnect.
-  void syncToServer() {
+  /// Sync rules to server via API (primary) and MQTT (fallback).
+  Future<void> syncToServer() async {
     _publishRules();
+
+    // Also sync via REST API if configured
+    if (_api.isConfigured && _api.hasToken) {
+      try {
+        final serverAutomations = await _api.fetchAutomations();
+        if (serverAutomations.isNotEmpty) {
+          debugPrint('[AUTO] Fetched ${serverAutomations.length} automations from API');
+        }
+      } catch (e) {
+        debugPrint('[AUTO] API sync failed: $e');
+      }
+    }
   }
 
   void addAutomation(Automation automation) {
     _automations.add(automation);
     _saveAutomations();
     _publishRules();
+    _syncToApi(automation);
     notifyListeners();
   }
 
@@ -151,6 +143,12 @@ class AutomationProvider extends ChangeNotifier {
     _saveAutomations();
     _ignoreNextEcho = true;
     _publishRules();
+
+    // Delete from API
+    if (_api.isConfigured && _api.hasToken) {
+      _api.deleteAutomation(id).catchError((_) {});
+    }
+
     notifyListeners();
   }
 
@@ -160,10 +158,15 @@ class AutomationProvider extends ChangeNotifier {
     auto.lastModified = DateTime.now().millisecondsSinceEpoch;
     _saveAutomations();
     _publishRules();
+
+    // Toggle via API
+    if (_api.isConfigured && _api.hasToken) {
+      _api.toggleAutomation(id).catchError((_) {});
+    }
+
     notifyListeners();
   }
 
-  /// Run automation immediately by publishing command to each action's device.
   void runNow(String id) {
     final auto = _automations.firstWhere((a) => a.id == id);
     for (final action in auto.actions) {
@@ -176,31 +179,82 @@ class AutomationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Start a countdown on the server.
-  /// Server-side script handles the actual timer.
   void startCountdown(String id) {
     final auto = _automations.firstWhere((a) => a.id == id);
     auto.countdownStart = DateTime.now();
     _saveAutomations();
-    _mqttService.publish(_kCountdownTopic, {
-      'id': auto.id,
-      'action': 'start',
-      'seconds': auto.countdownSeconds,
-      'commands': auto.actions.map((a) => a.toJson()).toList(),
-    });
+
+    // Try API first, fallback to MQTT
+    if (_api.isConfigured && _api.hasToken) {
+      _api.startCountdown(id).catchError((_) {
+        // Fallback to MQTT
+        _mqttService.publish(_kCountdownTopic, {
+          'id': auto.id,
+          'action': 'start',
+          'seconds': auto.countdownSeconds,
+          'commands': auto.actions.map((a) => a.toJson()).toList(),
+        });
+      });
+    } else {
+      _mqttService.publish(_kCountdownTopic, {
+        'id': auto.id,
+        'action': 'start',
+        'seconds': auto.countdownSeconds,
+        'commands': auto.actions.map((a) => a.toJson()).toList(),
+      });
+    }
+
     notifyListeners();
   }
 
-  /// Stop a running countdown on the server.
   void stopCountdown(String id) {
     final auto = _automations.firstWhere((a) => a.id == id);
     auto.countdownStart = null;
     _saveAutomations();
+
+    if (_api.isConfigured && _api.hasToken) {
+      _api.cancelCountdown(id).catchError((_) {});
+    }
+
     _mqttService.publish(_kCountdownTopic, {
       'id': auto.id,
       'action': 'stop',
     });
     notifyListeners();
+  }
+
+  /// Sync a single automation to the API backend
+  Future<void> _syncToApi(Automation auto) async {
+    if (!_api.isConfigured || !_api.hasToken) return;
+    try {
+      await _api.createAutomation(_automationToApiJson(auto));
+    } catch (e) {
+      debugPrint('[AUTO] API create failed: $e');
+    }
+  }
+
+  Map<String, dynamic> _automationToApiJson(Automation auto) {
+    String apiType;
+    switch (auto.type) {
+      case AutomationType.schedule:
+      case AutomationType.sunrise:
+      case AutomationType.sunset:
+        apiType = 'schedule';
+        break;
+      case AutomationType.countdown:
+        apiType = 'countdown';
+        break;
+      case AutomationType.condition:
+        apiType = 'trigger';
+        break;
+    }
+
+    return {
+      'name': auto.name,
+      'automation_type': apiType,
+      'enabled': auto.enabled,
+      'config': auto.toJson(),
+    };
   }
 
   String generateId() => _uuid.v4();

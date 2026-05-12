@@ -1,244 +1,259 @@
-# IoT Ecosystem — ESP8266 + HiveMQ Cloud + Flutter
+# IoT Ecosystem — ESP8266 + Cloud Server + Flutter
 
-A full-stack IoT system for remote device control over WiFi via MQTT. Control LED and Relay outputs from an Android app with real-time state feedback, auto-discovery, OTA firmware updates, and smart scenarios.
+A full-stack IoT system for remote device control via MQTT + REST API. Features Docker Compose orchestration with Mosquitto MQTT broker, Node.js backend (authentication, automation engine, device management), PostgreSQL database, and Nginx reverse proxy with HTTPS.
 
 ## Architecture
 
 ```
-┌─────────────┐       TLS/8883        ┌──────────────────┐       TLS/8883        ┌─────────────┐
-│  ESP8266     │ ◄──────────────────► │  HiveMQ Cloud    │ ◄──────────────────► │  Flutter App │
-│  (Firmware)  │     MQTT + JSON      │  (MQTT Broker)   │     MQTT + JSON      │  (Android)   │
-│              │                       │                  │                       │              │
-│  GPIO12: LED │                       │  Topics:         │                       │  5-Tab UI:   │
-│  GPIO15: Relay                       │  home/discovery  │                       │  Home        │
-│  GPIO0: Button                       │  v1/devices/+/*  │                       │  Smart       │
-└─────────────┘                       └──────────────────┘                       │  OTA Center  │
-                                                                                 │  Notifications│
-                                                                                 │  Settings    │
-                                                                                 └─────────────┘
+                                    ┌─────────────────────────────────────────────┐
+                                    │          Cloud Server (Docker Compose)      │
+                                    │                                             │
+┌─────────────┐    MQTT/1883    ┌───┴───────────┐     ┌──────────────┐           │
+│  ESP8266     │ ◄────────────► │  Mosquitto    │     │  PostgreSQL  │           │
+│  (Firmware)  │                │  MQTT Broker  │     │  Database    │           │
+│              │                └───┬───────────┘     └──────┬───────┘           │
+│  Power Save  │                    │                        │                   │
+│  Mode: HIGH  │                ┌───┴────────────────────────┴──────┐            │
+└─────────────┘                │  Node.js Backend                   │            │
+                               │  - JWT Authentication              │            │
+                               │  - REST API (devices, automations) │            │
+┌─────────────┐    HTTPS/443   │  - MQTT Bridge (subscribe/publish) │            │
+│  Flutter App │ ◄────────────►│  - Automation Engine               │            │
+│  (Android)   │    REST API   │    (schedules, triggers, countdowns)│            │
+│              │               └───┬────────────────────────────────┘            │
+│  Login/Auth  │                   │                                             │
+│  MQTT + API  │               ┌───┴──────────┐                                 │
+└─────────────┘               │  Nginx        │                                 │
+                               │  Reverse Proxy│                                 │
+                               │  + HTTPS/TLS  │                                 │
+                               └──────────────┘                                 │
+                                    └─────────────────────────────────────────────┘
 ```
+
+## Quick Start (Server)
+
+```bash
+cd server
+
+# One-command setup: generates SSL certs, creates .env, starts all services
+chmod +x setup.sh
+./setup.sh
+
+# Or manually:
+cp .env.example .env
+# Edit .env with your passwords
+docker compose up -d --build
+```
+
+**Services after startup:**
+| Service | Port | Description |
+|---------|------|-------------|
+| Nginx | 80, 443 | HTTP→HTTPS redirect, reverse proxy |
+| MQTT | 1883 | Plain MQTT for ESP devices |
+| MQTT/TLS | 8883 | MQTT over TLS (via Nginx) |
+| MQTT/WS | 9001 | WebSocket MQTT |
+| API | 3000 | Node.js REST API (proxied via Nginx) |
+| PostgreSQL | 5432 | Database |
 
 ## MQTT Topic Structure
 
 | Topic | Direction | Purpose |
 |-------|-----------|---------|
-| `home/discovery` | ESP → App | Device broadcasts identity + features |
-| `v1/devices/{id}/command` | App → ESP | Control commands (JSON) |
-| `v1/devices/{id}/state` | ESP → App | State feedback (retained) |
+| `home/discovery` | ESP → Server | Device broadcasts identity + features |
+| `v1/devices/{id}/command` | Server → ESP | Control commands (JSON) |
+| `v1/devices/{id}/state` | ESP → Server | State feedback (retained) |
 | `v1/devices/{id}/status` | ESP → Broker | Online/Offline (LWT, retained) |
 | `v1/devices/{id}/ota` | App → ESP | OTA update command |
 
-### Payload Examples
+## REST API Endpoints
 
-**Discovery** (published on connect, repeated every 30s):
-```json
-{"id": "device_01", "type": "esp8266", "features": ["relay", "led"], "v": "1.0.0"}
-```
+All API endpoints require JWT authentication (except register/login).
 
-**Command** (from App):
-```json
-{"feature": "relay", "state": true}
-```
+### Auth
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Register new user |
+| POST | `/api/auth/login` | Login, returns JWT token |
+| GET | `/api/auth/me` | Get current user info |
+| PUT | `/api/auth/password` | Change password |
 
-**State** (from ESP):
-```json
-{"id": "device_01", "relay": true, "led": false, "uptime": 3600, "rssi": -45}
-```
+### Devices
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/devices` | List all devices |
+| GET | `/api/devices/:id` | Device detail |
+| PUT | `/api/devices/:id` | Update device name/type |
+| POST | `/api/devices/:id/command` | Send command to device |
+| DELETE | `/api/devices/:id` | Remove device |
 
-**OTA** (from App):
-```json
-{"cmd": "ota", "url": "http://server.com/firmware.bin"}
-```
+### Automations
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/automations` | List user's automations |
+| POST | `/api/automations` | Create automation |
+| PUT | `/api/automations/:id` | Update automation |
+| PATCH | `/api/automations/:id/toggle` | Toggle enabled/disabled |
+| DELETE | `/api/automations/:id` | Delete automation |
+| POST | `/api/automations/:id/countdown/start` | Start countdown timer |
+| POST | `/api/automations/:id/countdown/cancel` | Cancel countdown |
 
-**LWT / Status**:
-```json
-{"id": "device_01", "status": "offline"}
-```
+### Logs
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/logs/devices` | Device activity log |
+| GET | `/api/logs/automations` | Automation execution log |
 
 ---
 
 ## 1. ESP8266 Firmware
 
 ### Features
-- **WiFiManager Captive Portal** — First-time setup via AP mode to configure WiFi + MQTT credentials
-- **LittleFS Config Storage** — Persistent configuration survives reboots
-- **MQTT over TLS** — Secure connection to HiveMQ Cloud on port 8883
-- **Last Will & Testament (LWT)** — Broker publishes offline status if device disconnects unexpectedly
-- **Periodic Discovery** — Broadcasts device identity every 60 seconds
-- **Physical Button Control**:
-  - Short press: Toggle Relay + LED
-  - Long press (5s): Factory reset (clears WiFi + MQTT config, restarts in AP mode)
-- **OTA Updates** — Remote firmware update via HTTP URL sent through MQTT
-- **Power Save Mode** — WiFi light sleep, 80MHz CPU, reduced TX power (similar to ESPHome `power_save_mode: HIGH`). Accepts 1-2s delay on relay/switch/LED response for significantly lower power consumption and heat.
-
-### Hardware Requirements
-- ESP8266 (NodeMCU, Wemos D1 Mini, etc.)
-- LED on GPIO12
-- Relay module on GPIO15
-- Button on GPIO0 (built-in FLASH button on most boards)
+- **WiFiManager Captive Portal** — First-time setup via AP mode
+- **LittleFS Config Storage** — Persistent configuration
+- **MQTT Connection** — Connects to Mosquitto broker on port 1883
+- **Last Will & Testament (LWT)** — Offline status on unexpected disconnect
+- **Periodic Discovery** — Broadcasts identity every 60 seconds
+- **Physical Button Control**: Short press toggle, Long press (5s) factory reset
+- **OTA Updates** — Remote firmware update via HTTP URL
+- **Power Save Mode** — WiFi light sleep, 80MHz CPU, 10dBm TX (accepts 1-2s delay)
 
 ### Build & Flash
-
-Requires [PlatformIO](https://platformio.org/).
-
 ```bash
 cd firmware/esp8266_iot
-
-# Build
 pio run
-
-# Upload via USB
 pio run --target upload
-
-# Monitor serial output
-pio device monitor
 ```
-
-### First-Time Setup
-1. Power on the ESP8266 — it creates a WiFi AP named `ESP8266-IoT-Setup` (password: `12345678`)
-2. Connect to the AP from your phone
-3. The captive portal opens automatically — enter:
-   - WiFi SSID & Password
-   - HiveMQ Hostname (e.g. `xxxxxxxx.s1.eu.hivemq.cloud`)
-   - Port: `8883`
-   - MQTT Username & Password
-   - Device ID (unique per device, e.g. `living_room_01`)
-4. Submit — the device connects to WiFi and MQTT
 
 ---
 
 ## 1b. ESP-WROOM-02 Smart Switch Firmware
 
-Variant of the ESP8266 firmware for ESP-WROOM-02 modules with 4MB flash.
-
-### Pin Mapping
 | Function | GPIO |
 |----------|------|
 | LED | GPIO12 |
 | Relay | GPIO15 |
 | Switch/Reset | GPIO13 |
 
-### Build & Flash
 ```bash
 cd firmware/esp_wroom02_switch
 pio run
 pio run --target upload
 ```
 
-### First-Time Setup
-1. Power on — creates WiFi AP `SmartSwitch-Setup` (password: `12345678`)
-2. Connect and configure WiFi + MQTT via captive portal
-3. Short press GPIO13: toggle relay + LED
-4. Long press GPIO13 (5s): factory reset
-
 ---
 
 ## 2. Flutter App (Android)
 
 ### Features
-- **5-Tab Navigation**: Home, Smart, OTA Center, Notifications, Settings
-- **Auto-Discovery**: Automatically detects ESP8266 devices via MQTT discovery topic
-- **Real-time Updates**: UI updates instantly when device states change
-- **Smart Scenarios**: Create and execute multi-device automation sequences
-- **Multi-Device Automation Sync**: Merge-based sync with per-rule timestamps ensures enable/disable states sync correctly across multiple phones
-- **OTA Center**: Push firmware updates to any online device
-- **Notification History**: Track all device events (on/off, online/offline, OTA)
-- **Material 3 Design**: Modern UI with light/dark theme support
+- **User Authentication** — Login/Register with JWT tokens
+- **6-Tab Navigation**: Home, Entities, Automation, OTA, Notifications, Settings
+- **Auto-Discovery** via MQTT + REST API device listing
+- **Real-time Updates** via MQTT subscriptions
+- **Automation Management** — Schedule, Countdown, Trigger (via API + MQTT)
+- **Server Config** — Set backend URL and MQTT broker independently
+- **Material 3 Design** with light/dark theme
 
-### Screens
-
-| Tab | Description |
-|-----|-------------|
-| **Home** | Grid of device cards with feature toggles (auto-generated from discovery) |
-| **Smart** | Create/execute scenarios (e.g., "Turn All On"), quick-action FABs |
-| **OTA Center** | Select online device → enter firmware URL → execute update |
-| **Notifications** | Chronological event log with read/unread indicators |
-| **Settings** | HiveMQ Cloud connection config (host, port, user, pass) |
-
-### State Management
-- **Provider** pattern with `ChangeNotifier`
-- `MqttProvider` — Connection lifecycle, settings persistence
-- `DeviceProvider` — Device registry, state tracking, command dispatch
-- `ScenarioProvider` — Smart automation persistence (SharedPreferences)
-
-### Build & Run
-
-Requires [Flutter SDK](https://flutter.dev/docs/get-started/install) (3.0+).
-
+### Build
 ```bash
 cd flutter_app/iot_controller
-
-# Get dependencies
 flutter pub get
-
-# Run on connected Android device
-flutter run
-
-# Build APK
 flutter build apk
 ```
 
-### Configuration
-1. Open the app → go to **Settings** tab
-2. Enter your HiveMQ Cloud credentials:
-   - Hostname, Port (8883), Username, Password
-3. Tap **Connect**
-4. Switch to **Home** tab — devices will appear as they broadcast discovery messages
+### App Configuration
+1. Launch app → **Login/Register** screen
+2. Set **Server URL** (e.g., `https://192.168.0.121`)
+3. Create account or login
+4. Go to **Settings** → configure MQTT broker (host: `192.168.0.121`, port: `1883`)
+5. Tap **Connect** — devices appear as they broadcast discovery
 
 ---
 
-## 3. HiveMQ Cloud Setup
+## 3. Server Setup (Docker Compose)
 
-1. Create a free account at [HiveMQ Cloud](https://www.hivemq.com/mqtt-cloud-broker/)
-2. Create a new cluster
-3. Note down the hostname (e.g., `xxxxxxxx.s1.eu.hivemq.cloud`)
-4. Create credentials (username + password) under **Access Management**
-5. Use these credentials in both the ESP8266 firmware (via captive portal) and the Flutter app (Settings tab)
+### Prerequisites
+- Docker Engine 20+
+- Docker Compose v2
+
+### Services
+- **PostgreSQL 16** — User accounts, devices, automations, logs
+- **Mosquitto 2** — MQTT broker with optional authentication
+- **Node.js 20** — REST API + MQTT bridge + Automation engine
+- **Nginx** — Reverse proxy, HTTPS (self-signed cert), MQTT/TLS on port 8883
+
+### Database Schema
+- `users` — Authentication (bcrypt hashed passwords)
+- `devices` — Device registry with last state and features
+- `automations` — Schedule/Countdown/Trigger rules (JSONB config)
+- `automation_logs` — Execution history
+- `device_logs` — State change history (auto-cleanup after 30 days)
+- `active_countdowns` — In-progress countdown timers
+
+### Automation Engine
+The Node.js backend includes a built-in automation engine:
+- **Schedule** — Execute at specific time + days of week
+- **Countdown** — Timer-based delayed execution (persists across restarts)
+- **Trigger** — React to device state changes (condition-based)
 
 ---
 
 ## Project Structure
 
 ```
-├── firmware/
-│   ├── esp8266_iot/
-│   │   ├── platformio.ini          # PlatformIO config & dependencies
+├── server/
+│   ├── docker-compose.yml          # Service orchestration
+│   ├── setup.sh                    # One-command setup script
+│   ├── .env.example                # Environment variables template
+│   ├── backend/
+│   │   ├── Dockerfile
+│   │   ├── package.json
 │   │   └── src/
-│   │       ├── config.h            # Pin definitions, MQTT topics, constants
-│   │       ├── config_manager.h/.cpp  # LittleFS config read/write
-│   │       ├── mqtt_manager.h/.cpp    # MQTT client, LWT, discovery
-│   │       └── main.cpp            # Entry point, WiFiManager, button handler, OTA
-│   │
-│   └── esp_wroom02_switch/
-│       ├── platformio.ini          # ESP-WROOM-02 config (4MB flash)
-│       └── src/
-│           ├── config.h            # GPIO13 switch, power save settings
-│           ├── config_manager.h/.cpp
-│           ├── mqtt_manager.h/.cpp
-│           └── main.cpp
+│   │       ├── index.js            # Express server entry point
+│   │       ├── db/
+│   │       │   ├── pool.js         # PostgreSQL connection pool
+│   │       │   └── init.sql        # Database schema
+│   │       ├── middleware/
+│   │       │   └── auth.js         # JWT authentication
+│   │       ├── routes/
+│   │       │   ├── auth.js         # Register, Login, Profile
+│   │       │   ├── devices.js      # Device CRUD + commands
+│   │       │   ├── automations.js  # Automation CRUD + countdown
+│   │       │   └── logs.js         # Device & automation logs
+│   │       └── services/
+│   │           ├── mqttService.js     # MQTT broker bridge
+│   │           └── automationEngine.js # Schedule/trigger/countdown
+│   ├── mosquitto/
+│   │   └── config/
+│   │       ├── mosquitto.conf      # Broker configuration
+│   │       └── acl.conf            # Access control list
+│   └── nginx/
+│       └── conf/
+│           └── nginx.conf          # Reverse proxy + TLS config
+│
+├── firmware/
+│   ├── esp8266_iot/                # Main ESP8266 firmware
+│   └── esp_wroom02_switch/         # ESP-WROOM-02 variant
 │
 ├── flutter_app/
 │   └── iot_controller/
-│       ├── pubspec.yaml            # Flutter dependencies
-│       ├── lib/
-│       │   ├── main.dart           # App entry, MultiProvider, navigation
-│       │   ├── models/
-│       │   │   ├── device.dart     # IoTDevice model
-│       │   │   ├── notification_item.dart
-│       │   │   └── smart_scenario.dart
-│       │   ├── services/
-│       │   │   └── mqtt_service.dart  # MQTT client wrapper
-│       │   ├── providers/
-│       │   │   ├── mqtt_provider.dart    # Connection state management
-│       │   │   ├── device_provider.dart  # Device registry & commands
-│       │   │   └── scenario_provider.dart # Smart scenarios
-│       │   └── screens/
-│       │       ├── home_screen.dart        # Device grid with feature toggles
-│       │       ├── smart_screen.dart       # Scenario management
-│       │       ├── ota_screen.dart         # OTA update center
-│       │       ├── notification_screen.dart # Event history
-│       │       └── settings_screen.dart    # MQTT broker config
-│       └── android/                # Android platform files
+│       ├── pubspec.yaml
+│       └── lib/
+│           ├── main.dart           # App entry + auth gate
+│           ├── models/
+│           ├── services/
+│           │   ├── mqtt_service.dart  # MQTT client
+│           │   └── api_service.dart   # REST API client (new)
+│           ├── providers/
+│           │   ├── auth_provider.dart    # Authentication (new)
+│           │   ├── mqtt_provider.dart
+│           │   ├── device_provider.dart
+│           │   └── automation_provider.dart
+│           └── screens/
+│               ├── login_screen.dart      # Login/Register (new)
+│               ├── home_screen.dart
+│               ├── automation_screen.dart
+│               ├── settings_screen.dart
+│               └── ...
 │
 └── README.md
 ```

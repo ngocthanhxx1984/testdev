@@ -5,9 +5,11 @@ import 'package:uuid/uuid.dart';
 import '../models/device.dart';
 import '../models/notification_item.dart';
 import '../services/mqtt_service.dart';
+import '../services/api_service.dart';
 
 class DeviceProvider extends ChangeNotifier {
   final MqttService _mqttService;
+  final ApiService _api = ApiService();
   final Map<String, IoTDevice> _devices = {};
   final List<NotificationItem> _notifications = [];
   final Map<String, String> _deviceRooms = {};
@@ -209,7 +211,6 @@ class DeviceProvider extends ChangeNotifier {
       final oldState = device.featureStates[feature];
       device.featureStates[feature] = state;
 
-      // Generate notification for optimistic state change
       if (oldState != state && feature != 'temperature' && feature != 'humidity') {
         final stateStr = state ? 'ON' : 'OFF';
         _addNotification(
@@ -221,10 +222,21 @@ class DeviceProvider extends ChangeNotifier {
       notifyListeners();
     }
 
-    _mqttService.publish(
-      'v1/devices/$deviceId/command',
-      {'feature': feature, 'state': state},
-    );
+    // Send via API if available, fallback to MQTT
+    if (_api.isConfigured && _api.hasToken) {
+      _api.sendCommand(deviceId, feature, state).catchError((_) {
+        // Fallback to direct MQTT
+        _mqttService.publish(
+          'v1/devices/$deviceId/command',
+          {'feature': feature, 'state': state},
+        );
+      });
+    } else {
+      _mqttService.publish(
+        'v1/devices/$deviceId/command',
+        {'feature': feature, 'state': state},
+      );
+    }
   }
 
   void sendOtaUpdate(String deviceId, String firmwareUrl) {

@@ -1,0 +1,6 @@
+node_modules/
+.env
+nginx/certs/*.key
+nginx/certs/*.crt
+mosquitto/data/
+mosquitto/log/

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/mqtt_provider.dart';
 import '../providers/device_provider.dart';
+import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,22 +19,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _clientIdController = TextEditingController();
+  final _serverUrlController = TextEditingController();
   bool _obscurePassword = true;
   bool _fieldsPopulated = false;
 
   @override
   void initState() {
     super.initState();
+    _serverUrlController.text = ApiService().baseUrl;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _tryPopulateFields();
-      // Listen for provider updates (loadSettings is async, may complete later)
       context.read<MqttProvider>().addListener(_tryPopulateFields);
     });
   }
 
   void _tryPopulateFields() {
     final provider = context.read<MqttProvider>();
-    // Only auto-fill if fields are still empty and provider has data
     if (!_fieldsPopulated && provider.host.isNotEmpty) {
       _hostController.text = provider.host;
       _portController.text = provider.port.toString();
@@ -50,6 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     _clientIdController.dispose();
+    _serverUrlController.dispose();
     super.dispose();
   }
 
@@ -64,32 +67,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Account section
+                _buildAccountSection(),
+                const SizedBox(height: 24),
+
                 // Connection Status Card
                 _buildStatusCard(provider),
+                const SizedBox(height: 24),
+
+                // Server URL
+                const Text(
+                  'API Server',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _serverUrlController,
+                  decoration: InputDecoration(
+                    labelText: 'Server URL',
+                    hintText: 'https://192.168.0.121',
+                    prefixIcon: const Icon(Icons.dns),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    helperText: 'Node.js backend URL (e.g., https://192.168.0.121)',
+                  ),
+                  keyboardType: TextInputType.url,
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final url = _serverUrlController.text.trim();
+                      if (url.isNotEmpty) {
+                        await ApiService().saveBaseUrl(url);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Server URL saved'), backgroundColor: Colors.green),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.save),
+                    label: const Text('Save Server URL'),
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 // MQTT Settings
                 const Text(
                   'MQTT Broker Configuration',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 16),
 
                 TextFormField(
                   controller: _hostController,
                   decoration: InputDecoration(
-                    labelText: 'Hostname',
-                    hintText: 'adangdang.ddns.net',
+                    labelText: 'MQTT Host',
+                    hintText: '192.168.0.121',
                     prefixIcon: const Icon(Icons.dns),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  validator: (v) =>
-                      v == null || v.isEmpty ? 'Required' : null,
+                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
 
@@ -97,11 +136,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: _portController,
                   decoration: InputDecoration(
                     labelText: 'Port',
-                    hintText: '443',
+                    hintText: '1883',
                     prefixIcon: const Icon(Icons.numbers),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   keyboardType: TextInputType.number,
                   validator: (v) {
@@ -115,14 +152,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 TextFormField(
                   controller: _usernameController,
                   decoration: InputDecoration(
-                    labelText: 'Username',
+                    labelText: 'MQTT Username',
                     prefixIcon: const Icon(Icons.person),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  validator: (v) =>
-                      v == null || v.isEmpty ? 'Required' : null,
+                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
 
@@ -130,21 +164,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    labelText: 'MQTT Password',
                     prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(
-                      icon: Icon(_obscurePassword
-                          ? Icons.visibility_off
-                          : Icons.visibility),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
+                      icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  validator: (v) =>
-                      v == null || v.isEmpty ? 'Required' : null,
+                  validator: (v) => v == null || v.isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 16),
 
@@ -154,9 +182,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     labelText: 'Client ID',
                     hintText: 'flutter_iot_app',
                     prefixIcon: const Icon(Icons.badge),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -171,9 +197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: const Text('Save'),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                       ),
                     ),
@@ -187,14 +211,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : Icon(provider.isConnected
-                                ? Icons.link_off
-                                : Icons.link),
+                            : Icon(provider.isConnected ? Icons.link_off : Icons.link),
                         label: Text(provider.isConnecting
                             ? 'Connecting...'
                             : provider.isConnected
@@ -202,19 +221,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : 'Connect'),
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          backgroundColor: provider.isConnected
-                              ? Colors.red
-                              : null,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          backgroundColor: provider.isConnected ? Colors.red : null,
                         ),
                       ),
                     ),
                   ],
                 ),
+
+                const SizedBox(height: 32),
+                // Logout
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final auth = context.read<AuthProvider>();
+                      final mqtt = context.read<MqttProvider>();
+                      mqtt.disconnect();
+                      await auth.logout();
+                    },
+                    icon: const Icon(Icons.logout, color: Colors.red),
+                    label: const Text('Logout', style: TextStyle(color: Colors.red)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                ),
               ],
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAccountSection() {
+    return Consumer<AuthProvider>(
+      builder: (context, auth, _) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                child: Text(
+                  (auth.username ?? '?')[0].toUpperCase(),
+                  style: const TextStyle(fontSize: 20),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      auth.displayName ?? auth.username ?? 'User',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      '@${auth.username ?? ''}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -246,20 +323,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isConnected ? 'Connected' : 'Disconnected',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                  isConnected ? 'MQTT Connected' : 'MQTT Disconnected',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 if (isConnected)
                   Text(
                     'Broker: ${provider.host}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withOpacity(0.85),
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.85)),
                   ),
               ],
             ),
@@ -284,10 +354,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Settings saved'),
-          backgroundColor: Colors.green,
-        ),
+        const SnackBar(content: Text('Settings saved'), backgroundColor: Colors.green),
       );
     }
   }
@@ -299,24 +366,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    // Save first
     await _saveSettings(provider);
 
     final success = await provider.connect();
     if (success && mounted) {
       context.read<DeviceProvider>().startListening();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connected to MQTT Broker'),
-          backgroundColor: Colors.green,
-        ),
+        const SnackBar(content: Text('Connected to MQTT Broker'), backgroundColor: Colors.green),
       );
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to connect. Check your settings.'),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text('Failed to connect. Check your settings.'), backgroundColor: Colors.red),
       );
     }
   }
