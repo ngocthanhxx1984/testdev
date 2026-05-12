@@ -329,7 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (isConnected)
                   Text(
                     'Broker: ${provider.host}',
-                    style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.85)),
+                    style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.85)),
                   ),
               ],
             ),
